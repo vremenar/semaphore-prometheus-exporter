@@ -43,19 +43,11 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-          cache: true
+          cache: false
 
-      # Generate a proper go.sum if the committed one is a placeholder or missing
-      - name: Generate go.sum
+      # go.sum is intentionally not committed — generate it fresh every run
+      - name: Generate go.sum and download dependencies
         run: go mod tidy
-
-      # Commit go.sum back to the repo if it was missing or changed
-      - name: Commit go.sum if changed
-        if: github.event_name != 'pull_request'
-        uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: update go.sum [skip ci]"
-          file_pattern: go.sum
 
       - name: Verify dependencies
         run: go mod verify

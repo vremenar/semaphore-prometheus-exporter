@@ -1,0 +1,15 @@
+# Go
+go.sum
+*.exe
+*.test
+coverage.out
+
+# Build artifacts
+semaphore-prometheus-exporter-linux-*
+
+# Runtime / cache
+data/
+*.json
+
+# Env
+.env
