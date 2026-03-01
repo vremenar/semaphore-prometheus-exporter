@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"log"
 	"net/http"
 	"os"
@@ -8,6 +9,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+//go:embed static/index.html
+var staticFiles embed.FS
 
 func main() {
 	cfg := LoadConfig()
@@ -56,15 +60,13 @@ func main() {
 		w.Write([]byte("ok"))
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte(`<html>
-<head><title>Semaphore Exporter</title></head>
-<body>
-<h1>Semaphore Prometheus Exporter</h1>
-<p><a href="/metrics">Metrics</a></p>
-<p><a href="/healthz">Health</a></p>
-</body>
-</html>`))
+		data, err := staticFiles.ReadFile("static/index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
 	})
 
 	log.Printf("Listening on %s", cfg.ListenAddress)

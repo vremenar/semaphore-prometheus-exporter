@@ -437,40 +437,71 @@ func TestCollector_FetchAndCache(t *testing.T) {
 	}
 }
 
-func TestCollector_MetricsEndpoint(t *testing.T) {
-	srv := newMockSemaphoreServer(t)
-
-	cfg := &Config{
-		SemaphoreURL: srv.URL,
-		APIToken:     "test-token",
-		HTTPTimeout:  5 * time.Second,
-		MaxEvents:    50,
-		CacheFile:    filepath.Join(t.TempDir(), "cache.json"),
-	}
-	// Override listen address to avoid port conflicts — endpoint test uses recorder
-	cfg.ListenAddress = ":0"
-
-	client := NewSemaphoreClient(cfg)
-	cache := NewCache(cfg.CacheFile)
-	collector := NewCollector(cfg, client, cache)
-
-	// Pre-populate cache so metrics are non-empty
-	if err := collector.FetchAndCache(); err != nil {
-		t.Fatalf("FetchAndCache failed: %v", err)
-	}
-
-	// Hit the /healthz endpoint via a test recorder
-	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
-	rec := httptest.NewRecorder()
-	http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func TestHealthzEndpoint(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ok"))
-	}).ServeHTTP(rec, req)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected 200 from /healthz, got %d", rec.Code)
 	}
+	if rec.Body.String() != "ok" {
+		t.Errorf("expected body 'ok', got %q", rec.Body.String())
+	}
 }
+
+func TestIndexEndpoint(t *testing.T) {
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		data, err := staticFiles.ReadFile("static/index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(data)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected 200 from /, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+
+	if ct := rec.Header().Get("Content-Type"); ct != "text/html; charset=utf-8" {
+		t.Errorf("expected Content-Type text/html; charset=utf-8, got %q", ct)
+	}
+	if !containsStr(body, "Semaphore Prometheus Exporter") {
+		t.Error("expected index page to contain 'Semaphore Prometheus Exporter'")
+	}
+	if !containsStr(body, "/metrics") {
+		t.Error("expected index page to contain link to /metrics")
+	}
+	if !containsStr(body, "/healthz") {
+		t.Error("expected index page to contain link to /healthz")
+	}
+	if !containsStr(body, "https://github.com/vremenar/semaphore-prometheus-exporter") {
+		t.Error("expected index page to contain GitHub link")
+	}
+}
+
+func containsStr(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
+
 
 // ─────────────────────────────────────────────
 // Helper: env variable tests
