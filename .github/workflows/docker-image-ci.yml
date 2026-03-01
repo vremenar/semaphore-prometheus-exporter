@@ -27,9 +27,6 @@ jobs:
       - name: Perform Scan
         uses: ShiftLeftSecurity/scan-action@master
 
-  # ─────────────────────────────────────────────
-  # 2. Test & Build Go application
-  # ─────────────────────────────────────────────
   test-and-build:
     name: Test & Build
     runs-on: ubuntu-latest
