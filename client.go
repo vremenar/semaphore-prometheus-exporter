@@ -22,34 +22,36 @@ type Project struct {
 
 // Task represents a Semaphore task/job run
 type Task struct {
-	ID          int        `json:"id"`
-	TemplateID  int        `json:"template_id"`
-	Status      string     `json:"status"`
-	Debug       bool       `json:"debug"`
-	DryRun      bool       `json:"dry_run"`
-	Diff        bool       `json:"diff"`
-	Playbook    string     `json:"playbook"`
-	Environment string     `json:"environment"`
-	UserID      *int       `json:"user_id"`
-	ProjectID   int        `json:"project_id"`
-	Version     *string    `json:"version"`
-	Message     string     `json:"message"`
-	CommitHash  *string    `json:"commit_hash"`
-	CommitMessage string   `json:"commit_message"`
-	Start       *time.Time `json:"start"`
-	End         *time.Time `json:"end"`
-	Created     time.Time  `json:"created"`
+	ID            int        `json:"id"`
+	TemplateID    int        `json:"template_id"`
+	Status        string     `json:"status"`
+	Debug         bool       `json:"debug"`
+	DryRun        bool       `json:"dry_run"`
+	Diff          bool       `json:"diff"`
+	Playbook      string     `json:"playbook"`
+	Environment   string     `json:"environment"`
+	UserID        *int       `json:"user_id"`
+	ProjectID     int        `json:"project_id"`
+	Version       *string    `json:"version"`
+	Message       string     `json:"message"`
+	CommitHash    *string    `json:"commit_hash"`
+	CommitMessage string     `json:"commit_message"`
+	Start         *time.Time `json:"start"`
+	End           *time.Time `json:"end"`
+	Created       time.Time  `json:"created"`
 }
 
-// Template represents a task template
+// Template represents a task template.
+// SurveyVars is json.RawMessage because Semaphore returns either a JSON
+// array or null — not a plain string.
 type Template struct {
-	ID              int    `json:"id"`
-	Name            string `json:"name"`
-	ProjectID       int    `json:"project_id"`
-	Playbook        string `json:"playbook"`
-	Description     string `json:"description"`
-	Type            string `json:"type"`
-	SurveyVarsJSON  string `json:"survey_vars"`
+	ID          int             `json:"id"`
+	Name        string          `json:"name"`
+	ProjectID   int             `json:"project_id"`
+	Playbook    string          `json:"playbook"`
+	Description string          `json:"description"`
+	Type        string          `json:"type"`
+	SurveyVars  json.RawMessage `json:"survey_vars"`
 }
 
 // Event represents a Semaphore event/audit log entry
@@ -145,11 +147,18 @@ func (c *SemaphoreClient) GetTemplates(projectID int) ([]Template, error) {
 	return templates, err
 }
 
-// GetEvents fetches the latest events (audit log)
+// GetEvents fetches events and truncates to the configured limit.
+// The Semaphore API does not reliably honour the ?limit query parameter,
+// so we apply the limit client-side after receiving the full response.
 func (c *SemaphoreClient) GetEvents(limit int) ([]Event, error) {
 	var events []Event
-	err := c.get(fmt.Sprintf("/events?limit=%d", limit), &events)
-	return events, err
+	if err := c.get("/events", &events); err != nil {
+		return nil, err
+	}
+	if len(events) > limit {
+		events = events[:limit]
+	}
+	return events, nil
 }
 
 // GetUsers fetches all users (admin only)
