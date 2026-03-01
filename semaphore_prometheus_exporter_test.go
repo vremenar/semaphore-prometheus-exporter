@@ -257,25 +257,53 @@ func TestClient_GetTasks(t *testing.T) {
 	}
 }
 
-func TestClient_GetEvents(t *testing.T) {
-	events := []Event{
-		{Description: "task created", ObjectType: "task"},
+func TestClient_GetEvents_ClientSideTruncation(t *testing.T) {
+	// Simulate Semaphore returning more events than requested (API ignores ?limit)
+	allEvents := make([]Event, 10)
+	for i := range allEvents {
+		allEvents[i] = Event{
+			Description: "event " + strconv.Itoa(i),
+			ObjectType:  "task",
+			Created:     time.Now(),
+		}
 	}
 
 	_, cfg := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/events" {
 			t.Errorf("unexpected path: %s", r.URL.Path)
 		}
-		limit := r.URL.Query().Get("limit")
-		if limit != "25" {
-			t.Errorf("expected limit=25, got %s", limit)
-		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(allEvents)
+	})
+
+	client := NewSemaphoreClient(cfg)
+
+	// Request limit of 5 — client must truncate the 10-item API response
+	got, err := client.GetEvents(5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 5 {
+		t.Fatalf("expected 5 events after client-side truncation, got %d", len(got))
+	}
+	if got[0].Description != "event 0" {
+		t.Errorf("expected first event 'event 0', got %s", got[0].Description)
+	}
+}
+
+func TestClient_GetEvents_LimitHigherThanAvailable(t *testing.T) {
+	// When limit > available events, return all without panic
+	events := []Event{
+		{Description: "only event", ObjectType: "task", Created: time.Now()},
+	}
+
+	_, cfg := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(events)
 	})
 
 	client := NewSemaphoreClient(cfg)
-	got, err := client.GetEvents(25)
+	got, err := client.GetEvents(100)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
