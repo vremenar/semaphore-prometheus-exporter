@@ -1,4 +1,4 @@
-module github.com/example/semaphore-exporter
+module github.com/vremenar/semaphore-prometheus-exporter
 
 go 1.22
 

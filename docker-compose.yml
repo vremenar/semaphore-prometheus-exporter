@@ -1,12 +1,12 @@
 version: "3.9"
 
 services:
-  semaphore-exporter:
+  semaphore-prometheus-exporter:
     build:
       context: .
       dockerfile: Dockerfile
-    image: semaphore-exporter:latest
-    container_name: semaphore-exporter
+    image: semaphore-prometheus-exporter:latest
+    container_name: semaphore-prometheus-exporter
     restart: unless-stopped
 
     ports:
@@ -23,14 +23,14 @@ services:
       MAX_EVENTS: "${MAX_EVENTS:-100}"
       HTTP_TIMEOUT: "${HTTP_TIMEOUT:-30s}"
       INSECURE_SKIP_VERIFY: "${INSECURE_SKIP_VERIFY:-false}"
-      CACHE_FILE: "/opt/semaphore-exporter/data/cache.json"
+      CACHE_FILE: "/opt/semaphore-prometheus-exporter/data/cache.json"
 
     volumes:
       # Persistent cache storage — override host path via CACHE_DATA_PATH env var
-      - "${CACHE_DATA_PATH:-./data}:/opt/semaphore-exporter/data"
+      - "${CACHE_DATA_PATH:-./data}:/opt/semaphore-prometheus-exporter/data"
 
     healthcheck:
-      test: ["CMD", "/semaphore-exporter", "-health-check"]
+      test: ["CMD", "/semaphore-prometheus-exporter", "-health-check"]
       # Note: since the binary doesn't support a separate health flag, use wget/curl
       # Replace the above with the line below if running a non-scratch image:
       # test: ["CMD", "wget", "-q", "-O-", "http://localhost:9090/healthz"]

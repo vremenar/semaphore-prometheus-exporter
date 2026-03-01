@@ -3,7 +3,7 @@ name: CI/CD Pipeline
 env:
   GHCR: ghcr.io
   DOCKER: docker.io
-  IMAGENAME: semaphore-exporter
+  IMAGENAME: semaphore-prometheus-exporter
 
 on:
   push:

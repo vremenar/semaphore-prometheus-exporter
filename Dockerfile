@@ -18,17 +18,17 @@ FROM scratch
 
 LABEL org.opencontainers.image.title="semaphore-exporter" \
       org.opencontainers.image.description="Prometheus exporter for Semaphore UI" \
-      org.opencontainers.image.source="https://github.com/example/semaphore-exporter"
+      org.opencontainers.image.source="https://github.com/vremenar/semaphore-prometheus-exporter"
 
 # Copy CA certificates for HTTPS
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
 # Copy binary
-COPY --from=builder /build/semaphore-exporter /semaphore-exporter
+COPY --from=builder /build/semaphore-prometheus-exporter /semaphore-prometheus-exporter
 
 # Default cache directory
-VOLUME ["/opt/semaphore-exporter/data"]
+VOLUME ["/opt/semaphore-prometheus-exporter/data"]
 
 EXPOSE 9090
 
-ENTRYPOINT ["/semaphore-exporter"]
+ENTRYPOINT ["/semaphore-prometheus-exporter"]

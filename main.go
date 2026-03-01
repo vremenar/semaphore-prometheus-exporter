@@ -58,7 +58,7 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.Write([]byte(`<html>
-<head><title>Semaphore Exporter</title></head>
+<head><title>Semaphore Prometheus Exporter</title></head>
 <body>
 <h1>Semaphore Prometheus Exporter</h1>
 <p><a href="/metrics">Metrics</a></p>
