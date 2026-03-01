@@ -1,0 +1,61 @@
+version: "3.9"
+
+services:
+  semaphore-exporter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: semaphore-exporter:latest
+    container_name: semaphore-exporter
+    restart: unless-stopped
+
+    ports:
+      - "${EXPORTER_PORT:-9090}:9090"
+
+    environment:
+      # --- Required ---
+      SEMAPHORE_URL: "${SEMAPHORE_URL}"
+      SEMAPHORE_API_TOKEN: "${SEMAPHORE_API_TOKEN}"
+
+      # --- Optional (shown with defaults) ---
+      LISTEN_ADDRESS: ":9090"
+      SCRAPE_INTERVAL: "${SCRAPE_INTERVAL:-30m}"
+      MAX_EVENTS: "${MAX_EVENTS:-100}"
+      HTTP_TIMEOUT: "${HTTP_TIMEOUT:-30s}"
+      INSECURE_SKIP_VERIFY: "${INSECURE_SKIP_VERIFY:-false}"
+      CACHE_FILE: "/opt/semaphore-exporter/data/cache.json"
+
+    volumes:
+      # Persistent cache storage — override host path via CACHE_DATA_PATH env var
+      - "${CACHE_DATA_PATH:-./data}:/opt/semaphore-exporter/data"
+
+    healthcheck:
+      test: ["CMD", "/semaphore-exporter", "-health-check"]
+      # Note: since the binary doesn't support a separate health flag, use wget/curl
+      # Replace the above with the line below if running a non-scratch image:
+      # test: ["CMD", "wget", "-q", "-O-", "http://localhost:9090/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Optional: if you want to also run Semaphore UI in the same Compose stack,
+# uncomment and configure the section below.
+#
+#  semaphore:
+#    image: semaphoreui/semaphore:latest
+#    container_name: semaphore
+#    ports:
+#      - "3000:3000"
+#    environment:
+#      SEMAPHORE_DB_DIALECT: bolt
+#      SEMAPHORE_ADMIN_PASSWORD: changeme
+#      SEMAPHORE_ADMIN_NAME: admin
+#      SEMAPHORE_ADMIN_EMAIL: admin@localhost
+#      SEMAPHORE_ADMIN: admin
