@@ -2,7 +2,7 @@ package main
 
 import (
 	"embed"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"time"
@@ -14,45 +14,45 @@ import (
 var staticFiles embed.FS
 
 func main() {
+	setupLogger()
+
 	cfg := LoadConfig()
 
-	log.Printf("Starting Semaphore Prometheus Exporter")
-	log.Printf("Semaphore URL: %s", cfg.SemaphoreURL)
-	log.Printf("Listen address: %s", cfg.ListenAddress)
-	log.Printf("Scrape interval: %s", cfg.ScrapeInterval)
-	log.Printf("Cache file: %s", cfg.CacheFile)
-	log.Printf("Max events: %d", cfg.MaxEvents)
+	slog.Info("Starting Semaphore Prometheus Exporter",
+		"semaphore_url", cfg.SemaphoreURL,
+		"listen_address", cfg.ListenAddress,
+		"scrape_interval", cfg.ScrapeInterval.String(),
+		"cache_file", cfg.CacheFile,
+		"max_events", cfg.MaxEvents,
+	)
 
 	client := NewSemaphoreClient(cfg)
 	cache := NewCache(cfg.CacheFile)
 	collector := NewCollector(cfg, client, cache)
 
-	// Register Prometheus collector
 	if err := collector.Register(); err != nil {
-		log.Fatalf("Failed to register collector: %v", err)
+		slog.Error("Failed to register collector", "error", err)
+		os.Exit(1)
 	}
 
-	// Initial fetch
-	log.Println("Performing initial data fetch...")
+	slog.Info("Performing initial data fetch")
 	if err := collector.FetchAndCache(); err != nil {
-		log.Printf("Warning: initial fetch failed: %v", err)
+		slog.Warn("Initial fetch failed", "error", err)
 	}
 
-	// Start background scraper
 	go func() {
 		ticker := time.NewTicker(cfg.ScrapeInterval)
 		defer ticker.Stop()
 		for range ticker.C {
-			log.Println("Fetching data from Semaphore UI...")
+			slog.Info("Fetching data from Semaphore UI")
 			if err := collector.FetchAndCache(); err != nil {
-				log.Printf("Error fetching data: %v", err)
+				slog.Error("Error fetching data", "error", err)
 			} else {
-				log.Println("Data fetched and cached successfully")
+				slog.Info("Data fetched and cached successfully")
 			}
 		}
 	}()
 
-	// HTTP server
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -62,6 +62,7 @@ func main() {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")
 		if err != nil {
+			slog.Error("Failed to read index.html", "error", err)
 			http.Error(w, "index.html not found", http.StatusInternalServerError)
 			return
 		}
@@ -69,9 +70,9 @@ func main() {
 		w.Write(data)
 	})
 
-	log.Printf("Listening on %s", cfg.ListenAddress)
+	slog.Info("Listening", "address", cfg.ListenAddress)
 	if err := http.ListenAndServe(cfg.ListenAddress, mux); err != nil {
-		log.Fatalf("HTTP server error: %v", err)
+		slog.Error("HTTP server error", "error", err)
 		os.Exit(1)
 	}
 }

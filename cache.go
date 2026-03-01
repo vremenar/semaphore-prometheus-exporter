@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"sync"
 	"time"
@@ -30,11 +30,10 @@ func NewCache(filePath string) *Cache {
 	c := &Cache{filePath: filePath}
 	// Try to load existing cache from disk
 	if err := c.loadFromDisk(); err != nil {
-		log.Printf("Cache: no existing cache found (%v), starting fresh", err)
+		slog.Warn("Cache: no existing cache found, starting fresh", "error", err)
 		c.data = &CachedData{}
 	} else {
-		log.Printf("Cache: loaded existing data from %s (last updated: %s)",
-			filePath, c.data.LastUpdated.Format(time.RFC3339))
+		slog.Info("Cache: loaded existing data", "path", filePath, "last_updated", c.data.LastUpdated.Format(time.RFC3339))
 	}
 	return c
 }
@@ -58,7 +57,7 @@ func (c *Cache) Set(data *CachedData) {
 	data.LastUpdated = time.Now()
 	c.data = data
 	if err := c.saveToDisk(data); err != nil {
-		log.Printf("Cache: failed to persist to disk: %v", err)
+		slog.Error("Cache: failed to persist to disk", "error", err)
 	}
 }
 

@@ -15,6 +15,7 @@ services:
       HTTP_TIMEOUT: "${HTTP_TIMEOUT:-30s}"
       INSECURE_SKIP_VERIFY: "${INSECURE_SKIP_VERIFY:-false}"
       CACHE_FILE: "/opt/semaphore-prometheus-exporter/data/cache.json"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
     volumes:
       # Persistent cache storage — override host path via CACHE_DATA_PATH env var
       - "${CACHE_DATA_PATH:-./data}:/opt/semaphore-prometheus-exporter/data"

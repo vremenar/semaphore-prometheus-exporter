@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -47,7 +47,8 @@ func LoadConfig() *Config {
 	// Ensure cache directory exists
 	dir := filepath.Dir(cfg.CacheFile)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Fatalf("Failed to create cache directory %s: %v", dir, err)
+		slog.Error("Failed to create cache directory", "path", dir, "error", err)
+		os.Exit(1)
 	}
 
 	return cfg
@@ -63,7 +64,8 @@ func getEnv(key, fallback string) string {
 func getEnvRequired(key string) string {
 	v := os.Getenv(key)
 	if v == "" {
-		log.Fatalf("Required environment variable %s is not set", key)
+		slog.Error("Required environment variable is not set", "key", key)
+		os.Exit(1)
 	}
 	return v
 }
@@ -72,7 +74,7 @@ func getInt(key string, fallback int) int {
 	if v := os.Getenv(key); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil {
-			log.Printf("Warning: invalid value for %s (%q), using default %d", key, v, fallback)
+			slog.Warn("Invalid integer value, using default", "key", key, "value", v, "default", fallback)
 			return fallback
 		}
 		return n
@@ -84,7 +86,7 @@ func getDuration(key string, fallback time.Duration) time.Duration {
 	if v := os.Getenv(key); v != "" {
 		d, err := time.ParseDuration(v)
 		if err != nil {
-			log.Printf("Warning: invalid duration for %s (%q), using default %s", key, v, fallback)
+			slog.Warn("Invalid duration value, using default", "key", key, "value", v, "default", fallback)
 			return fallback
 		}
 		return d
@@ -96,7 +98,7 @@ func getBool(key string, fallback bool) bool {
 	if v := os.Getenv(key); v != "" {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
-			log.Printf("Warning: invalid bool for %s (%q), using default %v", key, v, fallback)
+			slog.Warn("Invalid bool value, using default", "key", key, "value", v, "default", fallback)
 			return fallback
 		}
 		return b

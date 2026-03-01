@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"strconv"
 	"time"
 
@@ -270,42 +270,42 @@ func (c *Collector) FetchAndCache() error {
 		return fmt.Errorf("fetching projects: %w", err)
 	}
 	data.Projects = projects
-	log.Printf("Fetched %d projects", len(projects))
+	slog.Info("Fetched projects", "count", len(projects))
 
 	// Tasks and Templates per project
 	for _, p := range projects {
 		tasks, err := c.client.GetTasks(p.ID)
 		if err != nil {
-			log.Printf("Warning: failed to fetch tasks for project %d (%s): %v", p.ID, p.Name, err)
+			slog.Warn("Failed to fetch tasks", "project_id", p.ID, "project_name", p.Name, "error", err)
 			continue
 		}
 		data.Tasks = append(data.Tasks, tasks...)
 
 		templates, err := c.client.GetTemplates(p.ID)
 		if err != nil {
-			log.Printf("Warning: failed to fetch templates for project %d (%s): %v", p.ID, p.Name, err)
+			slog.Warn("Failed to fetch templates", "project_id", p.ID, "project_name", p.Name, "error", err)
 		} else {
 			data.Templates = append(data.Templates, templates...)
 		}
 	}
-	log.Printf("Fetched %d tasks, %d templates", len(data.Tasks), len(data.Templates))
+	slog.Info("Fetched tasks and templates", "tasks", len(data.Tasks), "templates", len(data.Templates))
 
 	// Events
 	events, err := c.client.GetEvents(c.cfg.MaxEvents)
 	if err != nil {
-		log.Printf("Warning: failed to fetch events: %v", err)
+		slog.Warn("Failed to fetch events", "error", err)
 	} else {
 		data.Events = events
-		log.Printf("Fetched %d events", len(events))
+		slog.Info("Fetched events", "count", len(events))
 	}
 
 	// Users (may fail if not admin)
 	users, err := c.client.GetUsers()
 	if err != nil {
-		log.Printf("Warning: failed to fetch users (requires admin): %v", err)
+		slog.Warn("Failed to fetch users (requires admin)", "error", err)
 	} else {
 		data.Users = users
-		log.Printf("Fetched %d users", len(users))
+		slog.Info("Fetched users", "count", len(users))
 	}
 
 	c.cache.Set(data)

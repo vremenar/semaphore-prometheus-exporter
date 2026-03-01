@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,11 @@ import (
 	"testing"
 	"time"
 )
+
+func init() {
+	// Discard log output during tests to keep test output clean
+	slog.SetDefault(slog.New(slog.NewJSONHandler(io.Discard, nil)))
+}
 
 // ─────────────────────────────────────────────
 // Config tests
