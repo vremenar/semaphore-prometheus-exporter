@@ -1,105 +1,176 @@
 package main
 
 import (
-	"log"
-	"os"
-	"path/filepath"
-	"strconv"
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"time"
 )
 
-// Config holds all application configuration
-type Config struct {
-	// Semaphore connection
-	SemaphoreURL string
-	APIToken     string
+// --- Semaphore API models ---
 
-	// HTTP server
-	ListenAddress string
-
-	// Scraping
-	ScrapeInterval time.Duration
-	MaxEvents      int
-
-	// Cache
-	CacheFile string
-
-	// Timeouts
-	HTTPTimeout time.Duration
-
-	// TLS
-	InsecureSkipVerify bool
+// Project represents a Semaphore project
+type Project struct {
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Alert       bool   `json:"alert"`
+	AlertChat   string `json:"alert_chat"`
+	MaxParallel int    `json:"max_parallel_tasks"`
+	Created     string `json:"created"`
 }
 
-// LoadConfig reads configuration from environment variables with sensible defaults.
-func LoadConfig() *Config {
-	cfg := &Config{
-		SemaphoreURL:       getEnv("SEMAPHORE_URL", "http://localhost:3000"),
-		APIToken:           getEnvRequired("SEMAPHORE_API_TOKEN"),
-		ListenAddress:      getEnv("LISTEN_ADDRESS", ":9090"),
-		ScrapeInterval:     getDuration("SCRAPE_INTERVAL", 30*time.Minute),
-		MaxEvents:          getInt("MAX_EVENTS", 100),
-		CacheFile:          getEnv("CACHE_FILE", "/opt/semaphore-prometheus-exporter/data/cache.json"),
-		HTTPTimeout:        getDuration("HTTP_TIMEOUT", 30*time.Second),
-		InsecureSkipVerify: getBool("INSECURE_SKIP_VERIFY", false),
-	}
-
-	// Ensure cache directory exists
-	dir := filepath.Dir(cfg.CacheFile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Fatalf("Failed to create cache directory %s: %v", dir, err)
-	}
-
-	return cfg
+// Task represents a Semaphore task/job run
+type Task struct {
+	ID            int        `json:"id"`
+	TemplateID    int        `json:"template_id"`
+	Status        string     `json:"status"`
+	Debug         bool       `json:"debug"`
+	DryRun        bool       `json:"dry_run"`
+	Diff          bool       `json:"diff"`
+	Playbook      string     `json:"playbook"`
+	Environment   string     `json:"environment"`
+	UserID        *int       `json:"user_id"`
+	ProjectID     int        `json:"project_id"`
+	Version       *string    `json:"version"`
+	Message       string     `json:"message"`
+	CommitHash    *string    `json:"commit_hash"`
+	CommitMessage string     `json:"commit_message"`
+	Start         *time.Time `json:"start"`
+	End           *time.Time `json:"end"`
+	Created       time.Time  `json:"created"`
 }
 
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+// Template represents a task template.
+// SurveyVars is json.RawMessage because Semaphore returns either a JSON
+// array or null — not a plain string.
+type Template struct {
+	ID          int             `json:"id"`
+	Name        string          `json:"name"`
+	ProjectID   int             `json:"project_id"`
+	Playbook    string          `json:"playbook"`
+	Description string          `json:"description"`
+	Type        string          `json:"type"`
+	SurveyVars  json.RawMessage `json:"survey_vars"`
 }
 
-func getEnvRequired(key string) string {
-	v := os.Getenv(key)
-	if v == "" {
-		log.Fatalf("Required environment variable %s is not set", key)
-	}
-	return v
+// Event represents a Semaphore event/audit log entry
+type Event struct {
+	ProjectID   *int      `json:"project_id"`
+	ObjectID    *int      `json:"object_id"`
+	ObjectType  string    `json:"object_type"`
+	Description string    `json:"description"`
+	Created     time.Time `json:"created"`
+	UserID      *int      `json:"user_id"`
+	UserName    string    `json:"user_name"`
+	Username    string    `json:"username"`
 }
 
-func getInt(key string, fallback int) int {
-	if v := os.Getenv(key); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil {
-			log.Printf("Warning: invalid value for %s (%q), using default %d", key, v, fallback)
-			return fallback
-		}
-		return n
-	}
-	return fallback
+// User represents a Semaphore user
+type User struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Username string `json:"username"`
+	Email    string `json:"email"`
+	Admin    bool   `json:"admin"`
+	External bool   `json:"external"`
+	Alert    bool   `json:"alert"`
 }
 
-func getDuration(key string, fallback time.Duration) time.Duration {
-	if v := os.Getenv(key); v != "" {
-		d, err := time.ParseDuration(v)
-		if err != nil {
-			log.Printf("Warning: invalid duration for %s (%q), using default %s", key, v, fallback)
-			return fallback
-		}
-		return d
-	}
-	return fallback
+// --- Client ---
+
+// SemaphoreClient handles API communication with Semaphore UI
+type SemaphoreClient struct {
+	cfg        *Config
+	httpClient *http.Client
 }
 
-func getBool(key string, fallback bool) bool {
-	if v := os.Getenv(key); v != "" {
-		b, err := strconv.ParseBool(v)
-		if err != nil {
-			log.Printf("Warning: invalid bool for %s (%q), using default %v", key, v, fallback)
-			return fallback
-		}
-		return b
+// NewSemaphoreClient creates a new API client
+func NewSemaphoreClient(cfg *Config) *SemaphoreClient {
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: cfg.InsecureSkipVerify,
+		},
 	}
-	return fallback
+	return &SemaphoreClient{
+		cfg: cfg,
+		httpClient: &http.Client{
+			Timeout:   cfg.HTTPTimeout,
+			Transport: transport,
+		},
+	}
+}
+
+func (c *SemaphoreClient) get(path string, target interface{}) error {
+	url := fmt.Sprintf("%s/api%s", c.cfg.SemaphoreURL, path)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+c.cfg.APIToken)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("executing request to %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("unexpected status %d from %s", resp.StatusCode, url)
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("decoding response from %s: %w", url, err)
+	}
+	return nil
+}
+
+// GetProjects fetches all projects
+func (c *SemaphoreClient) GetProjects() ([]Project, error) {
+	var projects []Project
+	err := c.get("/projects", &projects)
+	return projects, err
+}
+
+// GetTasks fetches recent tasks for a project
+func (c *SemaphoreClient) GetTasks(projectID int) ([]Task, error) {
+	var tasks []Task
+	err := c.get(fmt.Sprintf("/project/%d/tasks", projectID), &tasks)
+	return tasks, err
+}
+
+// GetTemplates fetches templates for a project
+func (c *SemaphoreClient) GetTemplates(projectID int) ([]Template, error) {
+	var templates []Template
+	err := c.get(fmt.Sprintf("/project/%d/templates", projectID), &templates)
+	return templates, err
+}
+
+// GetEvents fetches events and truncates to the configured limit.
+// The Semaphore API does not reliably honour the ?limit query parameter,
+// so we apply the limit client-side after receiving the full response.
+func (c *SemaphoreClient) GetEvents(limit int) ([]Event, error) {
+	var events []Event
+	if err := c.get("/events", &events); err != nil {
+		return nil, err
+	}
+	if len(events) > limit {
+		events = events[:limit]
+	}
+	return events, nil
+}
+
+// GetUsers fetches all users (admin only)
+func (c *SemaphoreClient) GetUsers() ([]User, error) {
+	var users []User
+	err := c.get("/users", &users)
+	return users, err
+}
+
+// GetUser fetches the current authenticated user
+func (c *SemaphoreClient) GetUser() (*User, error) {
+	var user User
+	err := c.get("/user", &user)
+	return &user, err
 }
