@@ -58,7 +58,7 @@ All settings are controlled via environment variables:
 | `MAX_EVENTS` | `100` | Number of audit events to fetch and expose |
 | `HTTP_TIMEOUT` | `30s` | Timeout for HTTP requests to Semaphore |
 | `INSECURE_SKIP_VERIFY` | `false` | Skip TLS certificate verification (not recommended in production) |
-| `CACHE_FILE` | `/opt/semaphore-exporter/data/cache.json` | Path of the JSON cache file inside the container |
+| `CACHE_FILE` | `/opt/semaphore-prometheus-exporter/data/cache.json` | Path of the JSON cache file inside the container |
 | `CACHE_DATA_PATH` | `./data` | **Docker Compose only** — host path mounted as the cache volume |
 | `EXPORTER_PORT` | `9090` | **Docker Compose only** — host port the metrics endpoint is exposed on |
 
@@ -82,7 +82,7 @@ All settings are controlled via environment variables:
 scrape_configs:
   - job_name: semaphore
     static_configs:
-      - targets: ["semaphore-exporter:9090"]
+      - targets: ["semaphore-prometheus-exporter:9090"]
     scrape_interval: 1m   # Can be faster than SCRAPE_INTERVAL — reads from cache
 ```
 
@@ -92,22 +92,22 @@ scrape_configs:
 
 ```bash
 go mod download
-go build -o semaphore-exporter .
-./semaphore-exporter
+go build -o semaphore-prometheus-exporter .
+./semaphore-prometheus-exporter
 ```
 
 ---
 
 ## Volume / Persistence
 
-The cache directory `/opt/semaphore-exporter/data` is declared as a Docker volume.
+The cache directory `/opt/semaphore-prometheus-exporter/data` is declared as a Docker volume.
 On restart the exporter will load the last-known data from disk immediately and
 serve it until the first successful API fetch completes.
 
 To use a custom host path, set `CACHE_DATA_PATH` in your `.env` file:
 
 ```dotenv
-CACHE_DATA_PATH=/var/lib/semaphore-exporter
+CACHE_DATA_PATH=/var/lib/semaphore-prometheus-exporter
 ```
 
 ---

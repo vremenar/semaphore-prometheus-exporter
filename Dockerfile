@@ -3,20 +3,19 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
-# Cache Go modules (go.sum is generated automatically if not present)
+# Copy go.mod first — go mod tidy will fetch deps and generate go.sum
 COPY go.mod ./
-COPY go.sum* ./
 RUN go mod tidy
 
-# Build the binary
+# Copy source and build
 COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -trimpath -ldflags="-s -w" -o semaphore-exporter .
+    go build -trimpath -ldflags="-s -w" -o semaphore-prometheus-exporter .
 
 # --- Runtime stage ---
 FROM scratch
 
-LABEL org.opencontainers.image.title="semaphore-exporter" \
+LABEL org.opencontainers.image.title="semaphore-prometheus-exporter" \
       org.opencontainers.image.description="Prometheus exporter for Semaphore UI" \
       org.opencontainers.image.source="https://github.com/vremenar/semaphore-prometheus-exporter"
 

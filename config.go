@@ -39,7 +39,7 @@ func LoadConfig() *Config {
 		ListenAddress:      getEnv("LISTEN_ADDRESS", ":9090"),
 		ScrapeInterval:     getDuration("SCRAPE_INTERVAL", 30*time.Minute),
 		MaxEvents:          getInt("MAX_EVENTS", 100),
-		CacheFile:          getEnv("CACHE_FILE", "/opt/semaphore-exporter/data/cache.json"),
+		CacheFile:          getEnv("CACHE_FILE", "/opt/semaphore-prometheus-exporter/data/cache.json"),
 		HTTPTimeout:        getDuration("HTTP_TIMEOUT", 30*time.Second),
 		InsecureSkipVerify: getBool("INSECURE_SKIP_VERIFY", false),
 	}
