@@ -27,6 +27,9 @@ jobs:
       - name: Perform Scan
         uses: ShiftLeftSecurity/scan-action@master
 
+  # ─────────────────────────────────────────────
+  # 2. Test & Build Go application
+  # ─────────────────────────────────────────────
   test-and-build:
     name: Test & Build
     runs-on: ubuntu-latest
@@ -42,7 +45,6 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # go.sum is intentionally not committed — generate it fresh every run
       - name: Generate go.sum and download dependencies
         run: go mod tidy
 
@@ -62,21 +64,16 @@ jobs:
           path: coverage.out
           retention-days: 7
 
-      - name: Build binary (linux/amd64)
+      - name: Build binary
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
           go build -trimpath -ldflags="-s -w" -o semaphore-prometheus-exporter-linux-amd64 .
 
-      - name: Build binary (linux/arm64)
-        run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-          go build -trimpath -ldflags="-s -w" -o semaphore-prometheus-exporter-linux-arm64 .
-
-      - name: Upload build artifacts
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: binaries
-          path: semaphore-prometheus-exporter-linux-*
+          path: semaphore-prometheus-exporter-linux-amd64
           retention-days: 7
 
   # ─────────────────────────────────────────────
@@ -91,9 +88,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -132,7 +126,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: |
             ${{ env.GHCR }}/vremenar/${{ env.IMAGENAME }}:latest

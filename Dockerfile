@@ -3,7 +3,7 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
-# Copy go.mod first — go mod tidy will fetch deps and generate go.sum
+# Copy go.mod and fetch dependencies (go.sum generated here, not committed to repo)
 COPY go.mod ./
 RUN go mod tidy
 
@@ -25,7 +25,6 @@ COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 # Copy binary
 COPY --from=builder /build/semaphore-prometheus-exporter /semaphore-prometheus-exporter
 
-# Default cache directory
 VOLUME ["/opt/semaphore-prometheus-exporter/data"]
 
 EXPOSE 9090
