@@ -3,13 +3,12 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /build
 
-# Copy go.mod and fetch dependencies
-COPY go.mod ./
-RUN go mod tidy && go mod download && go mod verify
-
-# Copy source and static assets
-COPY *.go ./
+# Copy everything at once so go mod tidy can see all imports
+COPY go.mod *.go ./
 COPY static/ ./static/
+
+# Fetch dependencies based on actual imports, then verify
+RUN go mod tidy && go mod download && go mod verify
 
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
