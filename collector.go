@@ -137,7 +137,7 @@ func NewCollector(cfg *Config, client *SemaphoreClient, cache *Cache) *Collector
 		scheduleInfoDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(ns, "schedule", "info"),
 			"Semaphore schedule metadata (value is always 1)",
-			[]string{"schedule_id", "project_id", "template_id", "cron_format", "enabled"}, nil,
+			[]string{"schedule_id", "project_id", "template_id", "cron_format", "name", "active", "delete_after_run"}, nil,
 		),
 
 		// Users
@@ -320,7 +320,9 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			strconv.Itoa(s.ProjectID),
 			strconv.Itoa(s.TemplateID),
 			s.CronFormat,
-			strconv.FormatBool(s.Enabled),
+			s.Name,
+			strconv.FormatBool(s.Active),
+			strconv.FormatBool(s.DeleteAfterRun),
 		)
 	}
 	for pid, count := range projectSchedules {

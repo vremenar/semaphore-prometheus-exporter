@@ -56,11 +56,13 @@ type Template struct {
 
 // Schedule represents a cron-based task schedule attached to a template
 type Schedule struct {
-	ID         int    `json:"id"`
-	ProjectID  int    `json:"project_id"`
-	TemplateID int    `json:"template_id"`
-	CronFormat string `json:"cron_format"`
-	Enabled    bool   `json:"enabled"`
+	ID            int    `json:"id"`
+	ProjectID     int    `json:"project_id"`
+	TemplateID    int    `json:"template_id"`
+	CronFormat    string `json:"cron_format"`
+	Name          string `json:"name"`
+	Active        bool   `json:"active"`
+	DeleteAfterRun bool  `json:"delete_after_run"`
 }
 
 // Event represents a Semaphore event/audit log entry

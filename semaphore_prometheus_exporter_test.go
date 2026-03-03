@@ -377,8 +377,8 @@ func TestClient_GetTemplates_Empty(t *testing.T) {
 
 func TestClient_GetSchedules(t *testing.T) {
 	schedules := []Schedule{
-		{ID: 1, ProjectID: 1, TemplateID: 5, CronFormat: "0 * * * *", Enabled: true},
-		{ID: 2, ProjectID: 1, TemplateID: 6, CronFormat: "0 0 * * *", Enabled: false},
+		{ID: 1, ProjectID: 1, TemplateID: 5, CronFormat: "0 * * * *", Name: "Hourly",    Active: true,  DeleteAfterRun: false},
+		{ID: 2, ProjectID: 1, TemplateID: 6, CronFormat: "0 0 * * *", Name: "Nightly",   Active: false, DeleteAfterRun: true},
 	}
 
 	_, cfg := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -400,11 +400,17 @@ func TestClient_GetSchedules(t *testing.T) {
 	if got[0].CronFormat != "0 * * * *" {
 		t.Errorf("expected cron '0 * * * *', got %s", got[0].CronFormat)
 	}
-	if !got[0].Enabled {
-		t.Errorf("expected first schedule to be enabled")
+	if got[0].Name != "Hourly" {
+		t.Errorf("expected first schedule name 'Hourly', got %s", got[0].Name)
 	}
-	if got[1].Enabled {
-		t.Errorf("expected second schedule to be disabled")
+	if !got[0].Active {
+		t.Errorf("expected first schedule to be active")
+	}
+	if got[1].Active {
+		t.Errorf("expected second schedule to be inactive")
+	}
+	if !got[1].DeleteAfterRun {
+		t.Errorf("expected second schedule to have delete_after_run=true")
 	}
 }
 
@@ -467,7 +473,7 @@ func newMockSemaphoreServer(t *testing.T) *httptest.Server {
 	projects := []Project{{ID: 1, Name: "Test Project"}}
 	tasks := []Task{{ID: 5, ProjectID: 1, Status: "success", Created: time.Now()}}
 	templates := []Template{{ID: 3, ProjectID: 1, Name: "Deploy"}}
-	schedules := []Schedule{{ID: 1, ProjectID: 1, TemplateID: 3, CronFormat: "0 * * * *", Enabled: true}}
+	schedules := []Schedule{{ID: 1, ProjectID: 1, TemplateID: 3, CronFormat: "0 * * * *", Name: "Hourly deploy", Active: true, DeleteAfterRun: false}}
 	events := []Event{{Description: "deployed", ObjectType: "task", Created: time.Now()}}
 	users := []User{{ID: 1, Name: "Admin", Username: "admin", Admin: true}}
 
