@@ -32,6 +32,14 @@ type Collector struct {
 	// Events
 	eventInfoDesc     *prometheus.Desc
 
+	// Templates
+	templateCountDesc *prometheus.Desc
+	templateInfoDesc  *prometheus.Desc
+
+	// Schedules
+	scheduleCountDesc   *prometheus.Desc
+	scheduleInfoDesc    *prometheus.Desc
+
 	// Users
 	userInfoDesc      *prometheus.Desc
 	userCountDesc     *prometheus.Desc
@@ -108,6 +116,30 @@ func NewCollector(cfg *Config, client *SemaphoreClient, cache *Cache) *Collector
 			}, nil,
 		),
 
+		// Templates
+		templateCountDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(ns, "template", "count"),
+			"Total number of task templates per project",
+			[]string{"project_id", "project_name"}, nil,
+		),
+		templateInfoDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(ns, "template", "info"),
+			"Semaphore template metadata (value is always 1)",
+			[]string{"template_id", "project_id", "name", "playbook", "description", "type"}, nil,
+		),
+
+		// Schedules
+		scheduleCountDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(ns, "schedule", "count"),
+			"Total number of schedules per project",
+			[]string{"project_id", "project_name"}, nil,
+		),
+		scheduleInfoDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(ns, "schedule", "info"),
+			"Semaphore schedule metadata (value is always 1)",
+			[]string{"schedule_id", "project_id", "template_id", "cron_format", "enabled"}, nil,
+		),
+
 		// Users
 		userInfoDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(ns, "user", "info"),
@@ -138,6 +170,10 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.taskDurationDesc
 	ch <- c.taskStatusDesc
 	ch <- c.eventInfoDesc
+	ch <- c.templateCountDesc
+	ch <- c.templateInfoDesc
+	ch <- c.scheduleCountDesc
+	ch <- c.scheduleInfoDesc
 	ch <- c.userInfoDesc
 	ch <- c.userCountDesc
 }
@@ -246,6 +282,55 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
+	// Templates — info per template + count per project
+	projectNameByID := make(map[string]string) // project_id -> project_name
+	for _, p := range data.Projects {
+		projectNameByID[strconv.Itoa(p.ID)] = p.Name
+	}
+	projectTemplates := make(map[string]int)
+	for _, tmpl := range data.Templates {
+		pid := strconv.Itoa(tmpl.ProjectID)
+		projectTemplates[pid]++
+		ch <- prometheus.MustNewConstMetric(
+			c.templateInfoDesc, prometheus.GaugeValue, 1,
+			strconv.Itoa(tmpl.ID),
+			pid,
+			tmpl.Name,
+			tmpl.Playbook,
+			tmpl.Description,
+			tmpl.Type,
+		)
+	}
+	for pid, count := range projectTemplates {
+		pname := projectNameByID[pid]
+		ch <- prometheus.MustNewConstMetric(
+			c.templateCountDesc, prometheus.GaugeValue, float64(count),
+			pid, pname,
+		)
+	}
+
+	// Schedules — count per project + individual info
+	projectSchedules := make(map[string]int)
+	for _, s := range data.Schedules {
+		pid := strconv.Itoa(s.ProjectID)
+		projectSchedules[pid]++
+		ch <- prometheus.MustNewConstMetric(
+			c.scheduleInfoDesc, prometheus.GaugeValue, 1,
+			strconv.Itoa(s.ID),
+			strconv.Itoa(s.ProjectID),
+			strconv.Itoa(s.TemplateID),
+			s.CronFormat,
+			strconv.FormatBool(s.Enabled),
+		)
+	}
+	for pid, count := range projectSchedules {
+		pname := projectNameByID[pid]
+		ch <- prometheus.MustNewConstMetric(
+			c.scheduleCountDesc, prometheus.GaugeValue, float64(count),
+			pid, pname,
+		)
+	}
+
 	// Users
 	for _, u := range data.Users {
 		ch <- prometheus.MustNewConstMetric(
@@ -287,8 +372,19 @@ func (c *Collector) FetchAndCache() error {
 		} else {
 			data.Templates = append(data.Templates, templates...)
 		}
+
+		schedules, err := c.client.GetSchedules(p.ID)
+		if err != nil {
+			slog.Warn("Failed to fetch schedules", "project_id", p.ID, "project_name", p.Name, "error", err)
+		} else {
+			data.Schedules = append(data.Schedules, schedules...)
+		}
 	}
-	slog.Info("Fetched tasks and templates", "tasks", len(data.Tasks), "templates", len(data.Templates))
+	slog.Info("Fetched tasks, templates and schedules",
+		"tasks", len(data.Tasks),
+		"templates", len(data.Templates),
+		"schedules", len(data.Schedules),
+	)
 
 	// Events
 	events, err := c.client.GetEvents(c.cfg.MaxEvents)

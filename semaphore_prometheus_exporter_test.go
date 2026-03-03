@@ -322,6 +322,91 @@ func TestClient_GetEvents_LimitHigherThanAvailable(t *testing.T) {
 	}
 }
 
+
+
+func TestClient_GetTemplates(t *testing.T) {
+	templates := []Template{
+		{ID: 1, ProjectID: 1, Name: "Deploy App",    Playbook: "deploy.yml",  Type: "Task"},
+		{ID: 2, ProjectID: 1, Name: "Run Tests",     Playbook: "test.yml",    Type: "Task"},
+		{ID: 3, ProjectID: 1, Name: "Build Image",   Playbook: "build.yml",   Type: "Build"},
+	}
+
+	_, cfg := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/project/1/templates" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(templates)
+	})
+
+	client := NewSemaphoreClient(cfg)
+	got, err := client.GetTemplates(1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 templates, got %d", len(got))
+	}
+	if got[0].Name != "Deploy App" {
+		t.Errorf("expected first template name 'Deploy App', got %s", got[0].Name)
+	}
+	if got[0].Playbook != "deploy.yml" {
+		t.Errorf("expected playbook 'deploy.yml', got %s", got[0].Playbook)
+	}
+	if got[2].Type != "Build" {
+		t.Errorf("expected type 'Build', got %s", got[2].Type)
+	}
+}
+
+func TestClient_GetTemplates_Empty(t *testing.T) {
+	_, cfg := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]Template{})
+	})
+
+	client := NewSemaphoreClient(cfg)
+	got, err := client.GetTemplates(99)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("expected 0 templates, got %d", len(got))
+	}
+}
+
+func TestClient_GetSchedules(t *testing.T) {
+	schedules := []Schedule{
+		{ID: 1, ProjectID: 1, TemplateID: 5, CronFormat: "0 * * * *", Enabled: true},
+		{ID: 2, ProjectID: 1, TemplateID: 6, CronFormat: "0 0 * * *", Enabled: false},
+	}
+
+	_, cfg := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/project/1/schedules" {
+			t.Errorf("unexpected path: %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(schedules)
+	})
+
+	client := NewSemaphoreClient(cfg)
+	got, err := client.GetSchedules(1)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 schedules, got %d", len(got))
+	}
+	if got[0].CronFormat != "0 * * * *" {
+		t.Errorf("expected cron '0 * * * *', got %s", got[0].CronFormat)
+	}
+	if !got[0].Enabled {
+		t.Errorf("expected first schedule to be enabled")
+	}
+	if got[1].Enabled {
+		t.Errorf("expected second schedule to be disabled")
+	}
+}
+
 func TestClient_GetUsers(t *testing.T) {
 	users := []User{
 		{ID: 1, Name: "Admin User", Username: "admin", Admin: true},
@@ -381,6 +466,7 @@ func newMockSemaphoreServer(t *testing.T) *httptest.Server {
 	projects := []Project{{ID: 1, Name: "Test Project"}}
 	tasks := []Task{{ID: 5, ProjectID: 1, Status: "success", Created: time.Now()}}
 	templates := []Template{{ID: 3, ProjectID: 1, Name: "Deploy"}}
+	schedules := []Schedule{{ID: 1, ProjectID: 1, TemplateID: 3, CronFormat: "0 * * * *", Enabled: true}}
 	events := []Event{{Description: "deployed", ObjectType: "task", Created: time.Now()}}
 	users := []User{{ID: 1, Name: "Admin", Username: "admin", Admin: true}}
 
@@ -393,6 +479,9 @@ func newMockSemaphoreServer(t *testing.T) *httptest.Server {
 	})
 	mux.HandleFunc("/api/project/1/templates", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(templates)
+	})
+	mux.HandleFunc("/api/project/1/schedules", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(schedules)
 	})
 	mux.HandleFunc("/api/events", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(events)
@@ -435,6 +524,15 @@ func TestCollector_FetchAndCache(t *testing.T) {
 	}
 	if len(data.Templates) != 1 {
 		t.Errorf("expected 1 template, got %d", len(data.Templates))
+	}
+	if data.Templates[0].Name != "Deploy" {
+		t.Errorf("expected template name 'Deploy', got %s", data.Templates[0].Name)
+	}
+	if data.Templates[0].ProjectID != 1 {
+		t.Errorf("expected template ProjectID 1, got %d", data.Templates[0].ProjectID)
+	}
+	if len(data.Schedules) != 1 {
+		t.Errorf("expected 1 schedule, got %d", len(data.Schedules))
 	}
 	if len(data.Events) != 1 {
 		t.Errorf("expected 1 event, got %d", len(data.Events))

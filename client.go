@@ -54,6 +54,15 @@ type Template struct {
 	SurveyVars  json.RawMessage `json:"survey_vars"`
 }
 
+// Schedule represents a cron-based task schedule attached to a template
+type Schedule struct {
+	ID         int    `json:"id"`
+	ProjectID  int    `json:"project_id"`
+	TemplateID int    `json:"template_id"`
+	CronFormat string `json:"cron_format"`
+	Enabled    bool   `json:"enabled"`
+}
+
 // Event represents a Semaphore event/audit log entry
 type Event struct {
 	ProjectID   *int      `json:"project_id"`
@@ -145,6 +154,13 @@ func (c *SemaphoreClient) GetTemplates(projectID int) ([]Template, error) {
 	var templates []Template
 	err := c.get(fmt.Sprintf("/project/%d/templates", projectID), &templates)
 	return templates, err
+}
+
+// GetSchedules fetches schedules for a project
+func (c *SemaphoreClient) GetSchedules(projectID int) ([]Schedule, error) {
+	var schedules []Schedule
+	err := c.get(fmt.Sprintf("/project/%d/schedules", projectID), &schedules)
+	return schedules, err
 }
 
 // GetEvents fetches events and truncates to the configured limit.

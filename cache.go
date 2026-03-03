@@ -14,6 +14,7 @@ type CachedData struct {
 	Projects    []Project  `json:"projects"`
 	Tasks       []Task     `json:"tasks"`
 	Templates   []Template `json:"templates"`
+	Schedules   []Schedule `json:"schedules"`
 	Events      []Event    `json:"events"`
 	Users       []User     `json:"users"`
 }
