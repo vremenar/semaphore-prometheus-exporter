@@ -1,6 +1,9 @@
 # --- Build stage ---
 FROM golang:1.22-alpine AS builder
 
+# Version is injected by Docker Buildx from the workflow (git tag or manual value)
+ARG APP_VERSION=dev
+
 WORKDIR /build
 
 # Copy everything at once so go mod tidy can see all imports
@@ -10,9 +13,11 @@ COPY static/ ./static/
 # Fetch dependencies based on actual imports, then verify
 RUN go mod tidy && go mod download && go mod verify
 
-# Build
+# Build — override the Version constant via ldflags
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -v -trimpath -ldflags="-s -w" -o semaphore-prometheus-exporter .
+    go build -v -trimpath \
+    -ldflags="-s -w -X main.Version=${APP_VERSION}" \
+    -o semaphore-prometheus-exporter .
 
 # --- Runtime stage ---
 FROM scratch

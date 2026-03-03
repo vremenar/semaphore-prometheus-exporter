@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -607,6 +608,30 @@ func containsStr(s, substr string) bool {
 	return false
 }
 
+
+// ─────────────────────────────────────────────
+// Version tests
+// ─────────────────────────────────────────────
+
+func TestVersion_NotEmpty(t *testing.T) {
+	if Version == "" {
+		t.Error("expected Version to be non-empty")
+	}
+}
+
+func TestVersion_Format(t *testing.T) {
+	// Version must follow semver: MAJOR.MINOR.PATCH (e.g. 1.0.0, 2.3.11)
+	parts := strings.Split(Version, ".")
+	if len(parts) != 3 {
+		t.Errorf("expected version in MAJOR.MINOR.PATCH format, got %q", Version)
+		return
+	}
+	for _, part := range parts {
+		if _, err := strconv.Atoi(part); err != nil {
+			t.Errorf("version part %q is not a number in version %q", part, Version)
+		}
+	}
+}
 
 // ─────────────────────────────────────────────
 // Helper: env variable tests

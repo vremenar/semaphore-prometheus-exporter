@@ -64,10 +64,19 @@ jobs:
           path: coverage.out
           retention-days: 7
 
+      - name: Read application version
+        id: version
+        run: |
+          VERSION=$(grep -oP 'Version\s*=\s*"\K[^"]+' version.go)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: ${VERSION}"
+
       - name: Build binary
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-          go build -trimpath -ldflags="-s -w" -o semaphore-prometheus-exporter-linux-amd64 .
+          go build -trimpath \
+            -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" \
+            -o semaphore-prometheus-exporter-linux-amd64 .
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -89,6 +98,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Read application version
+        id: version
+        run: |
+          VERSION=$(grep -oP 'Version\s*=\s*"\K[^"]+' version.go)
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: ${VERSION}"
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -106,10 +126,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Get current date
-        id: date
-        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
-
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -121,6 +137,7 @@ jobs:
             org.opencontainers.image.title=semaphore-prometheus-exporter
             org.opencontainers.image.description=Prometheus exporter for Semaphore UI
             org.opencontainers.image.vendor=vremenar
+            org.opencontainers.image.version=${{ steps.version.outputs.version }}
 
       - name: Build and push
         uses: docker/build-push-action@v5
@@ -128,11 +145,15 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
+          build-args: |
+            APP_VERSION=${{ steps.version.outputs.version }}
           tags: |
             ${{ env.GHCR }}/vremenar/${{ env.IMAGENAME }}:latest
             ${{ env.GHCR }}/vremenar/${{ env.IMAGENAME }}:${{ steps.date.outputs.date }}
+            ${{ env.GHCR }}/vremenar/${{ env.IMAGENAME }}:${{ steps.version.outputs.version }}
             ${{ env.DOCKER }}/vremenar/${{ env.IMAGENAME }}:latest
             ${{ env.DOCKER }}/vremenar/${{ env.IMAGENAME }}:${{ steps.date.outputs.date }}
+            ${{ env.DOCKER }}/vremenar/${{ env.IMAGENAME }}:${{ steps.version.outputs.version }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

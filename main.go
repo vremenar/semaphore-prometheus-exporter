@@ -19,6 +19,7 @@ func main() {
 	cfg := LoadConfig()
 
 	slog.Info("Starting Semaphore Prometheus Exporter",
+		"version", Version,
 		"semaphore_url", cfg.SemaphoreURL,
 		"listen_address", cfg.ListenAddress,
 		"scrape_interval", cfg.ScrapeInterval.String(),
