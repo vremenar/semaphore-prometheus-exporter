@@ -6,9 +6,6 @@ ARG APP_VERSION=dev
 
 WORKDIR /build
 
-# Install wget for healthcheck
-RUN apk update && apk add --no-cache wget
-
 # Copy everything at once so go mod tidy can see all imports
 COPY go.mod *.go ./
 COPY static/ ./static/
@@ -23,14 +20,14 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     -o semaphore-prometheus-exporter .
 
 # --- Runtime stage ---
-FROM scratch
+FROM alpine:3.23
 
 LABEL org.opencontainers.image.title="semaphore-prometheus-exporter" \
       org.opencontainers.image.description="Prometheus exporter for Semaphore UI" \
       org.opencontainers.image.source="https://github.com/vremenar/semaphore-prometheus-exporter"
 
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /usr/bin/wget /usr/bin/wget
+RUN apk update && apk add --no-cache wget
+
 COPY --from=builder /build/semaphore-prometheus-exporter /semaphore-prometheus-exporter
 
 VOLUME ["/opt/semaphore-prometheus-exporter/data"]

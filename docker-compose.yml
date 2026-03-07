@@ -20,13 +20,10 @@ services:
       # Persistent cache storage — override host path via CACHE_DATA_PATH env var
       - "${CACHE_DATA_PATH:-./data}:/opt/semaphore-prometheus-exporter/data"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://localhost:9090/healthz"]
+      test: ["CMD", "/usr/bin/wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
     logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+      driver: syslog
