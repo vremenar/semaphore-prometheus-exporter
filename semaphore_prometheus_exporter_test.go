@@ -496,6 +496,9 @@ func newMockSemaphoreServer(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(users)
 	})
+	mux.HandleFunc("/api/user", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(users[0])
+	})
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -549,21 +552,74 @@ func TestCollector_FetchAndCache(t *testing.T) {
 	}
 }
 
-func TestHealthzEndpoint(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
+func TestHealthzEndpoint_Healthy(t *testing.T) {
+	srv := newMockSemaphoreServer(t)
+
+	cfg := &Config{
+		SemaphoreURL: srv.URL,
+		APIToken:     "test-token",
+		HTTPTimeout:  5 * time.Second,
+		MaxEvents:    10,
+		CacheFile:    filepath.Join(t.TempDir(), "cache.json"),
+	}
+
+	client := NewSemaphoreClient(cfg)
+	cache := NewCache(cfg.CacheFile)
+
+	// Pre-populate cache so cache check passes
+	collector := NewCollector(cfg, client, cache)
+	if err := collector.FetchAndCache(); err != nil {
+		t.Fatalf("FetchAndCache failed: %v", err)
+	}
 
 	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
 	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, req)
+	healthzHandler(cfg, client, cache).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200 from /healthz, got %d", rec.Code)
+		t.Errorf("expected 200, got %d — body: %s", rec.Code, rec.Body.String())
 	}
-	if rec.Body.String() != "ok" {
-		t.Errorf("expected body 'ok', got %q", rec.Body.String())
+
+	var resp healthStatus
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != "ok" {
+		t.Errorf("expected overall status 'ok', got %q", resp.Status)
+	}
+	for name, check := range resp.Checks {
+		if check.Status != "ok" {
+			t.Errorf("check %q expected 'ok', got %q: %s", name, check.Status, check.Message)
+		}
+	}
+	if resp.Version == "" {
+		t.Error("expected version to be set in health response")
+	}
+}
+
+func TestHealthzEndpoint_Unhealthy(t *testing.T) {
+	// Point to a server that immediately closes connections
+	_, cfg := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+
+	cache := NewCache(filepath.Join(t.TempDir(), "cache.json"))
+	client := NewSemaphoreClient(cfg)
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+	healthzHandler(cfg, client, cache).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Errorf("expected 503, got %d", rec.Code)
+	}
+
+	var resp healthStatus
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Status != "fail" {
+		t.Errorf("expected overall status 'fail', got %q", resp.Status)
 	}
 }
 

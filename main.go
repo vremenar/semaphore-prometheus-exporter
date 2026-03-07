@@ -56,10 +56,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("ok"))
-	})
+	mux.HandleFunc("/healthz", healthzHandler(cfg, client, cache))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		data, err := staticFiles.ReadFile("static/index.html")
 		if err != nil {
