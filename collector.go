@@ -16,33 +16,34 @@ type Collector struct {
 	cache  *Cache
 
 	// Descriptors
-	upDesc            *prometheus.Desc
-	cacheAgeDesc      *prometheus.Desc
-	lastScrapeDesc    *prometheus.Desc
+	upDesc         *prometheus.Desc
+	cacheAgeDesc   *prometheus.Desc
+	lastScrapeDesc *prometheus.Desc
 
 	// Projects
 	projectInfoDesc   *prometheus.Desc
 	projectMaxParDesc *prometheus.Desc
 
 	// Tasks
-	taskInfoDesc      *prometheus.Desc
-	taskDurationDesc  *prometheus.Desc
-	taskStatusDesc    *prometheus.Desc
+	taskInfoDesc             *prometheus.Desc
+	taskDurationDesc         *prometheus.Desc
+	taskStatusDesc           *prometheus.Desc
+	taskCreatedTimestampDesc *prometheus.Desc
 
 	// Events
-	eventInfoDesc     *prometheus.Desc
+	eventInfoDesc *prometheus.Desc
 
 	// Templates
 	templateCountDesc *prometheus.Desc
 	templateInfoDesc  *prometheus.Desc
 
 	// Schedules
-	scheduleCountDesc   *prometheus.Desc
-	scheduleInfoDesc    *prometheus.Desc
+	scheduleCountDesc *prometheus.Desc
+	scheduleInfoDesc  *prometheus.Desc
 
 	// Users
-	userInfoDesc      *prometheus.Desc
-	userCountDesc     *prometheus.Desc
+	userInfoDesc  *prometheus.Desc
+	userCountDesc *prometheus.Desc
 }
 
 // NewCollector creates a new Prometheus collector
@@ -87,7 +88,7 @@ func NewCollector(cfg *Config, client *SemaphoreClient, cache *Cache) *Collector
 			prometheus.BuildFQName(ns, "task", "info"),
 			"Semaphore task metadata (value is always 1)",
 			[]string{
-				"task_id", "project_id", "template_id",
+				"task_id", "project_id", "template_id", "template_name",
 				"status", "playbook", "message",
 				"debug", "dry_run", "diff",
 				"created",
@@ -96,12 +97,20 @@ func NewCollector(cfg *Config, client *SemaphoreClient, cache *Cache) *Collector
 		taskDurationDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(ns, "task", "duration_seconds"),
 			"Duration of a completed task in seconds (-1 if still running or no end time)",
-			[]string{"task_id", "project_id", "template_id", "status"}, nil,
+			[]string{"task_id", "project_id", "template_id", "template_name", "status"}, nil,
 		),
 		taskStatusDesc: prometheus.NewDesc(
 			prometheus.BuildFQName(ns, "task", "status_total"),
 			"Number of tasks per project/status combination",
 			[]string{"project_id", "status"}, nil,
+		),
+		taskCreatedTimestampDesc: prometheus.NewDesc(
+			prometheus.BuildFQName(ns, "task", "created_timestamp_seconds"),
+			"Unix timestamp of task creation. Use this for time-range filtering in Grafana: "+
+				"count((semaphore_task_created_timestamp_seconds >= ${__from:date:seconds}) and "+
+				"(semaphore_task_created_timestamp_seconds <= ${__to:date:seconds})). "+
+				"Works without Prometheus historical data since values come from the Semaphore DB.",
+			[]string{"task_id", "project_id", "template_id", "template_name", "status"}, nil,
 		),
 
 		// Events
@@ -169,6 +178,7 @@ func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.taskInfoDesc
 	ch <- c.taskDurationDesc
 	ch <- c.taskStatusDesc
+	ch <- c.taskCreatedTimestampDesc
 	ch <- c.eventInfoDesc
 	ch <- c.templateCountDesc
 	ch <- c.templateInfoDesc
@@ -208,21 +218,36 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		)
 	}
 
-	// Tasks — aggregate counts per project+status
+	// Build template name lookup for enriching task metrics
+	templateNames := make(map[int]string, len(data.Templates))
+	for _, tmpl := range data.Templates {
+		templateNames[tmpl.ID] = tmpl.Name
+	}
+
+	// Tasks — aggregate counts per project+status, emit per-task metrics
 	statusCount := make(map[string]map[string]int) // project_id -> status -> count
 	for _, t := range data.Tasks {
 		pid := strconv.Itoa(t.ProjectID)
+		tid := strconv.Itoa(t.ID)
+		tplID := strconv.Itoa(t.TemplateID)
+		tplName := templateNames[t.TemplateID]
+
 		if statusCount[pid] == nil {
 			statusCount[pid] = make(map[string]int)
 		}
 		statusCount[pid][t.Status]++
 
-		// Task info
+		// semaphore_task_created_timestamp_seconds — key metric for Grafana period filtering
+		ch <- prometheus.MustNewConstMetric(
+			c.taskCreatedTimestampDesc, prometheus.GaugeValue,
+			float64(t.Created.Unix()),
+			tid, pid, tplID, tplName, t.Status,
+		)
+
+		// semaphore_task_info
 		ch <- prometheus.MustNewConstMetric(
 			c.taskInfoDesc, prometheus.GaugeValue, 1,
-			strconv.Itoa(t.ID),
-			strconv.Itoa(t.ProjectID),
-			strconv.Itoa(t.TemplateID),
+			tid, pid, tplID, tplName,
 			t.Status,
 			t.Playbook,
 			t.Message,
@@ -232,17 +257,14 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			t.Created.Format(time.RFC3339),
 		)
 
-		// Task duration
+		// semaphore_task_duration_seconds
 		dur := -1.0
 		if t.Start != nil && t.End != nil {
 			dur = t.End.Sub(*t.Start).Seconds()
 		}
 		ch <- prometheus.MustNewConstMetric(
 			c.taskDurationDesc, prometheus.GaugeValue, dur,
-			strconv.Itoa(t.ID),
-			strconv.Itoa(t.ProjectID),
-			strconv.Itoa(t.TemplateID),
-			t.Status,
+			tid, pid, tplID, tplName, t.Status,
 		)
 	}
 	for pid, statuses := range statusCount {
