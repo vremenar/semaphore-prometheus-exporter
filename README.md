@@ -31,9 +31,24 @@ local file-backed cache, and exposes all metrics via a standard `/metrics` endpo
 
 | Metric | Labels | Description |
 |--------|--------|-------------|
-| `semaphore_task_info` | `task_id`, `project_id`, `template_id`, `status`, `playbook`, `message`, `debug`, `dry_run`, `diff`, `created` | Task metadata (value is always 1) |
-| `semaphore_task_duration_seconds` | `task_id`, `project_id`, `template_id`, `status` | Task wall-clock duration in seconds (`-1` if still running or no end time recorded) |
+| `semaphore_task_info` | `task_id`, `project_id`, `template_id`, `template_name`, `status`, `playbook`, `message`, `debug`, `dry_run`, `diff`, `created` | Task metadata (value is always 1) |
+| `semaphore_task_duration_seconds` | `task_id`, `project_id`, `template_id`, `template_name`, `status` | Task wall-clock duration in seconds (`-1` if still running or no end time recorded) |
+| `semaphore_task_created_timestamp_seconds` | `task_id`, `project_id`, `template_id`, `template_name`, `status` | Unix timestamp of task creation (from the Semaphore DB) |
 | `semaphore_task_status_total` | `project_id`, `status` | Task count per project and status combination |
+
+`template_name` is resolved from the templates list; it is empty when the template no longer exists.
+
+**Time-range filtering in Grafana** — count tasks in the dashboard period:
+
+```promql
+count(
+  (semaphore_task_created_timestamp_seconds{status="success"} >= ${__from:date:seconds})
+  and
+  (semaphore_task_created_timestamp_seconds{status="success"} <= ${__to:date:seconds})
+)
+```
+
+Group by template: `count by(template_name) (...)`.
 
 ### Templates
 

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func init() {
@@ -26,6 +28,7 @@ func init() {
 func TestLoadConfig_Defaults(t *testing.T) {
 	t.Setenv("SEMAPHORE_API_TOKEN", "test-token")
 	t.Setenv("SEMAPHORE_URL", "http://semaphore:3000")
+	t.Setenv("CACHE_FILE", filepath.Join(t.TempDir(), "cache.json"))
 
 	cfg := LoadConfig()
 
@@ -54,6 +57,7 @@ func TestLoadConfig_OverrideFromEnv(t *testing.T) {
 	t.Setenv("HTTP_TIMEOUT", "10s")
 	t.Setenv("INSECURE_SKIP_VERIFY", "true")
 	t.Setenv("LISTEN_ADDRESS", ":8888")
+	t.Setenv("CACHE_FILE", filepath.Join(t.TempDir(), "cache.json"))
 
 	cfg := LoadConfig()
 
@@ -83,6 +87,7 @@ func TestLoadConfig_OverrideFromEnv(t *testing.T) {
 func TestLoadConfig_InvalidDuration_UsesDefault(t *testing.T) {
 	t.Setenv("SEMAPHORE_API_TOKEN", "tok")
 	t.Setenv("SCRAPE_INTERVAL", "not-a-duration")
+	t.Setenv("CACHE_FILE", filepath.Join(t.TempDir(), "cache.json"))
 
 	cfg := LoadConfig()
 	if cfg.ScrapeInterval != 30*time.Minute {
@@ -93,6 +98,7 @@ func TestLoadConfig_InvalidDuration_UsesDefault(t *testing.T) {
 func TestLoadConfig_InvalidInt_UsesDefault(t *testing.T) {
 	t.Setenv("SEMAPHORE_API_TOKEN", "tok")
 	t.Setenv("MAX_EVENTS", "banana")
+	t.Setenv("CACHE_FILE", filepath.Join(t.TempDir(), "cache.json"))
 
 	cfg := LoadConfig()
 	if cfg.MaxEvents != 100 {
@@ -471,7 +477,7 @@ func newMockSemaphoreServer(t *testing.T) *httptest.Server {
 	t.Helper()
 
 	projects := []Project{{ID: 1, Name: "Test Project"}}
-	tasks := []Task{{ID: 5, ProjectID: 1, Status: "success", Created: time.Now()}}
+	tasks := []Task{{ID: 5, ProjectID: 1, TemplateID: 3, Status: "success", Created: time.Now()}}
 	templates := []Template{{ID: 3, ProjectID: 1, Name: "Deploy"}}
 	schedules := []Schedule{{ID: 1, ProjectID: 1, TemplateID: 3, CronFormat: "0 * * * *", Name: "Hourly deploy", Active: true, DeleteAfterRun: false}}
 	events := []Event{{Description: "deployed", ObjectType: "task", Created: time.Now()}}
@@ -658,6 +664,196 @@ func TestIndexEndpoint(t *testing.T) {
 	}
 	if !containsStr(body, "https://github.com/vremenar/semaphore-prometheus-exporter") {
 		t.Error("expected index page to contain GitHub link")
+	}
+}
+
+// ─────────────────────────────────────────────
+// Collector metric emission tests
+// ─────────────────────────────────────────────
+
+func newTestCollector(t *testing.T) (*Collector, *Cache) {
+	t.Helper()
+	srv := newMockSemaphoreServer(t)
+
+	cfg := &Config{
+		SemaphoreURL: srv.URL,
+		APIToken:     "test-token",
+		HTTPTimeout:  5 * time.Second,
+		MaxEvents:    10,
+		CacheFile:    filepath.Join(t.TempDir(), "cache.json"),
+	}
+	client := NewSemaphoreClient(cfg)
+	cache := NewCache(cfg.CacheFile)
+	collector := NewCollector(cfg, client, cache)
+
+	if err := collector.FetchAndCache(); err != nil {
+		t.Fatalf("FetchAndCache failed: %v", err)
+	}
+	return collector, cache
+}
+
+// collectMetrics drains the Collect channel and returns all emitted metrics.
+func collectMetrics(t *testing.T, c *Collector) []string {
+	t.Helper()
+	reg := prometheus.NewPedanticRegistry()
+	if err := reg.Register(c); err != nil {
+		t.Fatalf("failed to register collector: %v", err)
+	}
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("failed to gather metrics: %v", err)
+	}
+	var names []string
+	for _, mf := range mfs {
+		names = append(names, mf.GetName())
+	}
+	return names
+}
+
+func TestCollector_Collect_EmitsCreatedTimestamp(t *testing.T) {
+	collector, _ := newTestCollector(t)
+
+	reg := prometheus.NewPedanticRegistry()
+	if err := reg.Register(collector); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+
+	found := false
+	for _, mf := range mfs {
+		if mf.GetName() != "semaphore_task_created_timestamp_seconds" {
+			continue
+		}
+		found = true
+		if len(mf.GetMetric()) == 0 {
+			t.Fatal("semaphore_task_created_timestamp_seconds has no metric samples")
+		}
+		m := mf.GetMetric()[0]
+		val := m.GetGauge().GetValue()
+		if val <= 0 {
+			t.Errorf("expected positive unix timestamp, got %f", val)
+		}
+		// Check that template_name label is present and resolved
+		labelMap := make(map[string]string)
+		for _, lp := range m.GetLabel() {
+			labelMap[lp.GetName()] = lp.GetValue()
+		}
+		if _, ok := labelMap["template_name"]; !ok {
+			t.Error("expected label template_name to be present")
+		}
+		if labelMap["template_name"] != "Deploy" {
+			t.Errorf("expected template_name=Deploy, got %q", labelMap["template_name"])
+		}
+		if labelMap["status"] != "success" {
+			t.Errorf("expected status=success, got %q", labelMap["status"])
+		}
+	}
+
+	if !found {
+		t.Error("metric semaphore_task_created_timestamp_seconds was not emitted")
+	}
+}
+
+func TestCollector_Collect_TaskDurationHasTemplateName(t *testing.T) {
+	collector, _ := newTestCollector(t)
+
+	reg := prometheus.NewPedanticRegistry()
+	if err := reg.Register(collector); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+
+	for _, mf := range mfs {
+		if mf.GetName() != "semaphore_task_duration_seconds" {
+			continue
+		}
+		if len(mf.GetMetric()) == 0 {
+			t.Fatal("semaphore_task_duration_seconds has no metric samples")
+		}
+		labelMap := make(map[string]string)
+		for _, lp := range mf.GetMetric()[0].GetLabel() {
+			labelMap[lp.GetName()] = lp.GetValue()
+		}
+		if _, ok := labelMap["template_name"]; !ok {
+			t.Error("expected label template_name on semaphore_task_duration_seconds")
+		}
+		return
+	}
+	t.Error("metric semaphore_task_duration_seconds was not emitted")
+}
+
+func TestCollector_Collect_TaskInfoHasTemplateName(t *testing.T) {
+	collector, _ := newTestCollector(t)
+
+	reg := prometheus.NewPedanticRegistry()
+	if err := reg.Register(collector); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("gather: %v", err)
+	}
+
+	for _, mf := range mfs {
+		if mf.GetName() != "semaphore_task_info" {
+			continue
+		}
+		if len(mf.GetMetric()) == 0 {
+			t.Fatal("semaphore_task_info has no metric samples")
+		}
+		labelMap := make(map[string]string)
+		for _, lp := range mf.GetMetric()[0].GetLabel() {
+			labelMap[lp.GetName()] = lp.GetValue()
+		}
+		if _, ok := labelMap["template_name"]; !ok {
+			t.Error("expected label template_name on semaphore_task_info")
+		}
+		if labelMap["template_name"] != "Deploy" {
+			t.Errorf("expected template_name=Deploy, got %q", labelMap["template_name"])
+		}
+		return
+	}
+	t.Error("metric semaphore_task_info was not emitted")
+}
+
+func TestCollector_Collect_AllExpectedMetrics(t *testing.T) {
+	collector, _ := newTestCollector(t)
+	names := collectMetrics(t, collector)
+
+	expected := []string{
+		"semaphore_up",
+		"semaphore_cache_age_seconds",
+		"semaphore_cache_last_update_timestamp_seconds",
+		"semaphore_project_info",
+		"semaphore_project_max_parallel_tasks",
+		"semaphore_task_info",
+		"semaphore_task_duration_seconds",
+		"semaphore_task_status_total",
+		"semaphore_task_created_timestamp_seconds",
+		"semaphore_event_info",
+		"semaphore_template_info",
+		"semaphore_template_count",
+		"semaphore_schedule_info",
+		"semaphore_schedule_count",
+		"semaphore_user_info",
+		"semaphore_user_count",
+	}
+
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
+	}
+	for _, want := range expected {
+		if !nameSet[want] {
+			t.Errorf("expected metric %q to be emitted, but it was not", want)
+		}
 	}
 }
 
